@@ -2,13 +2,11 @@ package com.example.resilient_purchase.api
 
 import com.example.resilient_purchase.domain.Product
 import com.example.resilient_purchase.repository.ProductRepository
+import com.example.resilient_purchase.service.ConcurrencyTestExecutor
 import com.example.resilient_purchase.service.OrderService
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 
 @RestController
 @RequestMapping("/experiments")
@@ -23,7 +21,9 @@ class ConcurrencyExperimentController(
     private val lockOrderService: OrderService,
 
     @Qualifier("pessimisticLockOrderService")
-    private val pessimisticLockOrderService: OrderService
+    private val pessimisticLockOrderService: OrderService,
+
+    private val concurrencyTestExecutor: ConcurrencyTestExecutor
 ) {
 
     @PostMapping("/concurrency")
@@ -31,15 +31,15 @@ class ConcurrencyExperimentController(
         val product = createExperimentProduct(req.method, req.initialStock)
         val service = selectOrderService(req.method)
 
-        val (successCount, failureCount) = executeConcurrentOrders(
+        val testResult = concurrencyTestExecutor.executeConcurrentOrders(
             service, product.id!!, req.quantity, req.method, req.threads
         )
 
         val remainingStock = getRemainingStock(product.id!!)
-        val invariantHolds = checkInvariant(successCount, req.quantity, remainingStock, req.initialStock)
+        val invariantHolds = checkInvariant(testResult.successCount, req.quantity, remainingStock, req.initialStock)
 
         val result = buildExperimentResult(
-            req, successCount, failureCount, remainingStock, invariantHolds
+            req, testResult.successCount, testResult.failureCount, remainingStock, invariantHolds
         )
 
         return ResponseEntity.ok(result)
@@ -62,36 +62,6 @@ class ConcurrencyExperimentController(
         }
     }
 
-    private fun executeConcurrentOrders(
-        service: OrderService,
-        productId: Long,
-        quantity: Int,
-        method: String,
-        threads: Int
-    ): Pair<Int, Int> {
-        val latch = CountDownLatch(threads)
-        val pool = Executors.newFixedThreadPool(minOf(threads, 50))
-        val successCount = AtomicInteger(0)
-        val failureCount = AtomicInteger(0)
-
-        repeat(threads) {
-            pool.submit {
-                try {
-                    service.order(productId, quantity, method)
-                    successCount.incrementAndGet()
-                } catch (_: Exception) {
-                    failureCount.incrementAndGet()
-                } finally {
-                    latch.countDown()
-                }
-            }
-        }
-
-        latch.await()
-        pool.shutdown()
-
-        return Pair(successCount.get(), failureCount.get())
-    }
 
     private fun getRemainingStock(productId: Long): Int {
         return productRepository.findById(productId).get().stock

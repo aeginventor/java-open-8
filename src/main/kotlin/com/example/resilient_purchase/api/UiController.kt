@@ -4,6 +4,7 @@ import com.example.resilient_purchase.demo.DemoSharedStock
 import com.example.resilient_purchase.demo.GlobalLockDemoService
 import com.example.resilient_purchase.demo.LocalLockDemoService
 import com.example.resilient_purchase.repository.ProductRepository
+import com.example.resilient_purchase.service.ConcurrencyTestExecutor
 import com.example.resilient_purchase.service.OrderService
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
@@ -11,7 +12,6 @@ import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 @RestController
@@ -30,7 +30,9 @@ class UiController(
     private val pessimisticLockOrderService: OrderService,
 
     @PersistenceContext
-    private val entityManager: EntityManager
+    private val entityManager: EntityManager,
+
+    private val concurrencyTestExecutor: ConcurrencyTestExecutor
 ) {
 
     private val targetProductId: Long = 1L  // 실험용 기본 상품 ID
@@ -78,13 +80,13 @@ class UiController(
         val initialStock = product.stock
         val service = selectOrderService(req.method)
 
-        val (successCount, failureCount) = executeConcurrentOrders(
+        val testResult = concurrencyTestExecutor.executeConcurrentOrders(
             service, targetProductId, QUANTITY_PER_ORDER, req.method, req.threads
         )
 
         val remainingStock = getFinalStock()
         val result = buildExperimentResult(
-            req.method, initialStock, req.threads, successCount, failureCount, remainingStock
+            req.method, initialStock, req.threads, testResult.successCount, testResult.failureCount, remainingStock
         )
 
         return ResponseEntity.ok(result)
@@ -101,36 +103,6 @@ class UiController(
         }
     }
 
-    private fun executeConcurrentOrders(
-        service: OrderService,
-        productId: Long,
-        quantity: Int,
-        method: String,
-        threads: Int
-    ): Pair<Int, Int> {
-        val latch = CountDownLatch(threads)
-        val pool = Executors.newFixedThreadPool(minOf(threads, 50))
-        val successCount = AtomicInteger(0)
-        val failureCount = AtomicInteger(0)
-
-        repeat(threads) {
-            pool.submit {
-                try {
-                    service.order(productId, quantity, method)
-                    successCount.incrementAndGet()
-                } catch (_: Exception) {
-                    failureCount.incrementAndGet()
-                } finally {
-                    latch.countDown()
-                }
-            }
-        }
-
-        latch.await()
-        pool.shutdown()
-
-        return Pair(successCount.get(), failureCount.get())
-    }
 
     private fun getFinalStock(): Int {
         entityManager.clear()
