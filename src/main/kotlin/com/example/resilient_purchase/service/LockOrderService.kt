@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service
 class LockOrderService(private val productRepository: ProductRepository) : OrderService {
 
     @Synchronized
-    override fun order(productId: Long, quantity: Int, method: String): Map<String, Any> {
+    override fun order(productId: Long, quantity: Int, method: String): OrderResponse {
         val product = productRepository.findById(productId)
             .orElseThrow { IllegalArgumentException("상품을 찾지 못했습니다.") }
         
@@ -19,10 +19,10 @@ class LockOrderService(private val productRepository: ProductRepository) : Order
         product.stock -= quantity
         productRepository.save(product)
         
-        return mapOf(
-            "success" to true,
-            "remainingStock" to product.stock,
-            "method" to method
+        return OrderResponse(
+            success = true,
+            remainingStock = product.stock,
+            method = method
         )
     }
 

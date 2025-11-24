@@ -8,13 +8,13 @@ import org.springframework.transaction.annotation.Transactional
 class NoLockOrderService(private val productRepository: ProductRepository) : OrderService {
 
     @Transactional
-    override fun order(productId: Long, quantity: Int, method: String): Map<String, Any> {
+    override fun order(productId: Long, quantity: Int, method: String): OrderResponse {
         val product = productRepository.findById(productId).orElseThrow { IllegalArgumentException("상품을 찾지 못했습니다.") }
         if (product.stock < quantity) throw IllegalStateException("재고 부족")
         // 여기서 race condition 가능
         product.stock -= quantity
         productRepository.save(product)
-        return mapOf("success" to true, "remainingStock" to product.stock, "method" to method)
+        return OrderResponse(success = true, remainingStock = product.stock, method = method)
     }
 
     override fun resetStock(productId: Long, stock: Int) {

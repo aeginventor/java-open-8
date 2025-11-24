@@ -10,7 +10,7 @@ class PessimisticLockOrderService(
 ) : OrderService {
 
     @Transactional
-    override fun order(productId: Long, quantity: Int, method: String): Map<String, Any> {
+    override fun order(productId: Long, quantity: Int, method: String): OrderResponse {
         val product = productRepository.findByIdForUpdate(productId)
             ?: throw IllegalArgumentException("상품을 찾지 못했습니다.")
 
@@ -21,10 +21,10 @@ class PessimisticLockOrderService(
         product.stock -= quantity
         productRepository.save(product)
 
-        return mapOf(
-            "success" to true,
-            "remainingStock" to product.stock,
-            "method" to method
+        return OrderResponse(
+            success = true,
+            remainingStock = product.stock,
+            method = method
         )
     }
 
