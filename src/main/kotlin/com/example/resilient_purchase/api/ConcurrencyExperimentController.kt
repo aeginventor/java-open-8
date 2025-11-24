@@ -28,39 +28,59 @@ class ConcurrencyExperimentController(
 
     @PostMapping("/concurrency")
     fun runExperiment(@RequestBody req: ConcurrencyExperimentRequest): ResponseEntity<ConcurrencyExperimentResult> {
-        val initialStock = req.initialStock
-        val saved = productRepository.save(
+        val product = createExperimentProduct(req.method, req.initialStock)
+        val service = selectOrderService(req.method)
+
+        val (successCount, failureCount) = executeConcurrentOrders(
+            service, product.id!!, req.quantity, req.method, req.threads
+        )
+
+        val remainingStock = getRemainingStock(product.id!!)
+        val invariantHolds = checkInvariant(successCount, req.quantity, remainingStock, req.initialStock)
+
+        val result = buildExperimentResult(
+            req, successCount, failureCount, remainingStock, invariantHolds
+        )
+
+        return ResponseEntity.ok(result)
+    }
+
+    private fun createExperimentProduct(method: String, initialStock: Int): Product {
+        return productRepository.save(
             Product(
-                name = "experiment-${req.method}",
+                name = "experiment-$method",
                 stock = initialStock
             )
         )
-        val productId = saved.id!!
+    }
 
-        val service = when (req.method) {
+    private fun selectOrderService(method: String): OrderService {
+        return when (method) {
             "no-lock" -> noLockOrderService
             "pessimistic" -> pessimisticLockOrderService
             else -> lockOrderService
         }
+    }
 
-        val threads = req.threads
-        val quantity = req.quantity
-
+    private fun executeConcurrentOrders(
+        service: OrderService,
+        productId: Long,
+        quantity: Int,
+        method: String,
+        threads: Int
+    ): Pair<Int, Int> {
         val latch = CountDownLatch(threads)
         val pool = Executors.newFixedThreadPool(minOf(threads, 50))
-
         val successCount = AtomicInteger(0)
         val failureCount = AtomicInteger(0)
 
         repeat(threads) {
             pool.submit {
                 try {
-                    try {
-                        service.order(productId, quantity, req.method)
-                        successCount.incrementAndGet()
-                    } catch (_: Exception) {
-                        failureCount.incrementAndGet()
-                    }
+                    service.order(productId, quantity, method)
+                    successCount.incrementAndGet()
+                } catch (_: Exception) {
+                    failureCount.incrementAndGet()
                 } finally {
                     latch.countDown()
                 }
@@ -70,21 +90,33 @@ class ConcurrencyExperimentController(
         latch.await()
         pool.shutdown()
 
-        val remaining = productRepository.findById(productId).get().stock
-        val invariantHolds =
-            remaining >= 0 && successCount.get() * quantity + remaining == initialStock
+        return Pair(successCount.get(), failureCount.get())
+    }
 
-        val result = ConcurrencyExperimentResult(
+    private fun getRemainingStock(productId: Long): Int {
+        return productRepository.findById(productId).get().stock
+    }
+
+    private fun checkInvariant(successCount: Int, quantity: Int, remaining: Int, initialStock: Int): Boolean {
+        return remaining >= 0 && successCount * quantity + remaining == initialStock
+    }
+
+    private fun buildExperimentResult(
+        req: ConcurrencyExperimentRequest,
+        successCount: Int,
+        failureCount: Int,
+        remainingStock: Int,
+        invariantHolds: Boolean
+    ): ConcurrencyExperimentResult {
+        return ConcurrencyExperimentResult(
             method = req.method,
-            initialStock = initialStock,
-            threads = threads,
-            quantity = quantity,
-            successCount = successCount.get(),
-            failureCount = failureCount.get(),
-            remainingStock = remaining,
+            initialStock = req.initialStock,
+            threads = req.threads,
+            quantity = req.quantity,
+            successCount = successCount,
+            failureCount = failureCount,
+            remainingStock = remainingStock,
             invariantHolds = invariantHolds
         )
-
-        return ResponseEntity.ok(result)
     }
 }
