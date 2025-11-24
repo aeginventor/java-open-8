@@ -1,56 +1,41 @@
-package com.example.resilient_purchase
+package com.example.resilient_purchase.service
 
-import com.example.resilient_purchase.domain.Product
 import com.example.resilient_purchase.repository.ProductRepository
-import com.example.resilient_purchase.service.OrderService
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.context.SpringBootTest
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
+import org.springframework.stereotype.Service
 
-@SpringBootTest
-class LockConcurrentTest(
-    @Autowired val productRepository: ProductRepository,
-    @Autowired val applicationContext: org.springframework.context.ApplicationContext
-) {
+@Service("lockOrderService")
+class LockOrderService(private val productRepository: ProductRepository) : OrderService {
 
-    @Test
-    fun `lock 기반 동시성 테스트 - 재고는 정확히 0이어야 한다`() {
-        // given
-        val p = productRepository.save(Product(name = "lock-sample", stock = 100))
-        val productId = p.id!!
-
-        val svc = applicationContext.getBean("lockOrderService", OrderService::class.java)
-
-        val threads = 200
-        val latch = CountDownLatch(threads)
-        val pool = Executors.newFixedThreadPool(50)
-
-        // when
-        repeat(threads) {
-            pool.submit {
-                try {
-                    try {
-                        svc.order(productId, 1, "lock")
-                    } catch (_: Exception) {
-                        // 재고 부족 등은 무시
-                    }
-                } finally {
-                    latch.countDown()
-                }
-            }
+    @Synchronized
+    override fun order(productId: Long, quantity: Int, method: String): Map<String, Any> {
+        val product = productRepository.findById(productId)
+            .orElseThrow { IllegalArgumentException("상품을 찾지 못했습니다.") }
+        
+        if (product.stock < quantity) {
+            throw IllegalStateException("재고 부족")
         }
+        
+        // synchronized 블록으로 보호되어 race condition 방지
+        product.stock -= quantity
+        productRepository.save(product)
+        
+        return mapOf(
+            "success" to true,
+            "remainingStock" to product.stock,
+            "method" to method
+        )
+    }
 
-        latch.await()
-        pool.shutdown()
+    override fun resetStock(productId: Long, stock: Int) {
+        val p = productRepository.findById(productId).orElse(null)
+        if (p != null) {
+            p.stock = stock
+            productRepository.save(p)
+        }
+    }
 
-        // then
-        val remaining = productRepository.findById(productId).get().stock
-        println("락 서비스 테스트 종료 — 남은 재고: $remaining")
-        // 재고는 절대 음수가 되지 않고, 0 이상 초기값 이하
-        // 여기서는 100개 재고에서 각자 1개씩 시도하므로, 정확히 0일 것을 기대
-        assertEquals(0, remaining)
+    override fun currentStock(productId: Long): Int {
+        return productRepository.findById(productId).orElseThrow().stock
     }
 }
+
