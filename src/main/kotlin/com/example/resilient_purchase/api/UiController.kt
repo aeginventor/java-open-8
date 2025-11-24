@@ -1,6 +1,5 @@
 package com.example.resilient_purchase.api
 
-import com.example.resilient_purchase.domain.Product
 import com.example.resilient_purchase.repository.ProductRepository
 import com.example.resilient_purchase.service.OrderService
 import jakarta.persistence.EntityManager
@@ -23,7 +22,6 @@ data class StockResponse(
 
 data class RunExperimentRequest(
     val threads: Int = 200,
-    val quantity: Int = 1,
     val method: String = "no-lock"
 )
 
@@ -31,11 +29,12 @@ data class RunExperimentResult(
     val method: String,
     val initialStock: Int,
     val threads: Int,
-    val quantity: Int,
-    val successCount: Int,
+    val successCount: Int,        // = "성공 응답 건수"
     val failureCount: Int,
     val remainingStock: Int,
-    val oversold: Boolean
+    val expectedDecrease: Int,    // 성공 응답 기준 "기대되는 감소량"
+    val actualDecrease: Int,      // 재고 기준 "실제 감소량"
+    val hasGhostSuccess: Boolean  // "재고에 반영되지 않은 성공 응답 존재 여부"
 )
 
 @RestController
@@ -59,7 +58,6 @@ class UiController(
 
     private val targetProductId: Long = 1L  // 실험용 기본 상품 ID
 
-    /** 1. 재고 초기화 */
     @PostMapping("/reset-stock")
     fun resetStock(@RequestBody req: ResetStockRequest): ResponseEntity<StockResponse> {
         require(req.stock >= 0) { "재고는 0 이상이어야 합니다." }
@@ -78,7 +76,6 @@ class UiController(
         )
     }
 
-    /** 2. 현재 재고 조회 */
     @GetMapping("/current-stock")
     fun currentStock(): ResponseEntity<StockResponse> {
         val product = productRepository.findById(targetProductId)
@@ -92,19 +89,19 @@ class UiController(
         )
     }
 
-    /** 3. 동시 주문 실험 실행 */
     @PostMapping("/run-experiment")
     fun runExperiment(@RequestBody req: RunExperimentRequest): ResponseEntity<RunExperimentResult> {
         require(req.threads in 1..200) { "동시 요청 수는 1 이상 200 이하여야 합니다." }
-        require(req.quantity >= 1) { "주문 수량은 1 이상이어야 합니다." }
 
         val product = productRepository.findById(targetProductId)
             .orElseThrow { IllegalStateException("기본 상품(ID=1)이 필요합니다. data.sql을 확인해주세요.") }
 
         val initialStock = product.stock
         val threads = req.threads
-        val quantity = req.quantity
         val method = req.method
+
+        // 실험에서는 "요청당 1개"만 주문하는 시나리오로 고정
+        val quantity = 1
 
         val service = when (method) {
             "no-lock" -> noLockOrderService
@@ -136,6 +133,7 @@ class UiController(
         latch.await()
         pool.shutdown()
 
+        // JPA 1차 캐시 비우고, 실제 최신 재고 읽기
         entityManager.clear()
 
         val finalProduct = productRepository.findById(targetProductId)
@@ -143,17 +141,21 @@ class UiController(
 
         val remaining = finalProduct.stock
 
-        val oversold = successCount.get() * quantity > initialStock
+        val expectedDecrease = successCount.get() * quantity
+        val actualDecrease = initialStock - remaining
+        // "재고에 반영되지 않은 성공 응답"이 하나 이상 있는지
+        val hasGhostSuccess = expectedDecrease > actualDecrease
 
         val result = RunExperimentResult(
             method = method,
             initialStock = initialStock,
             threads = threads,
-            quantity = quantity,
             successCount = successCount.get(),
             failureCount = failureCount.get(),
             remainingStock = remaining,
-            oversold = oversold
+            expectedDecrease = expectedDecrease,
+            actualDecrease = actualDecrease,
+            hasGhostSuccess = hasGhostSuccess
         )
 
         return ResponseEntity.ok(result)

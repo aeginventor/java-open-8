@@ -123,10 +123,6 @@
         동시 요청 수 (threads, 최대 200):
         <input type="number" id="threadsInput" value="200" min="1" max="200">
     </label>
-    <label>
-        한 요청당 주문 수량 (quantity):
-        <input type="number" id="quantityInput" value="1" min="1">
-    </label>
 
     <h3>4. 락 방식 선택</h3>
     <div class="radio-group">
@@ -194,7 +190,6 @@
 
     async function runExperiment() {
         const threadsVal = parseInt(document.getElementById('threadsInput').value, 10);
-        const quantityVal = parseInt(document.getElementById('quantityInput').value, 10);
         const method = document.querySelector('input[name="method"]:checked').value;
 
         if (isNaN(threadsVal) || threadsVal <= 0) {
@@ -205,10 +200,6 @@
             alert('동시 요청 수는 최대 200까지 허용됩니다. 값을 200으로 조정합니다.');
             document.getElementById('threadsInput').value = 200;
         }
-        if (isNaN(quantityVal) || quantityVal <= 0) {
-            alert('주문 수량은 1 이상이어야 합니다.');
-            return;
-        }
 
         try {
             const resp = await fetch('/ui/run-experiment', {
@@ -216,7 +207,6 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     threads: Math.min(threadsVal, 200),
-                    quantity: quantityVal,
                     method: method
                 })
             });
@@ -228,27 +218,28 @@
             const box = document.getElementById('experimentResult');
             box.style.display = 'block';
             box.textContent =
-                `락 방식              : ${data.method}\n` +
-                `실험 시작 시 재고     : ${data.initialStock}개\n` +
-                `동시 요청 수          : ${data.threads}개\n` +
-                `요청당 주문 수량      : ${data.quantity}개\n` +
-                `성공한 주문 수        : ${data.successCount}건\n` +
-                `실패한 주문 수        : ${data.failureCount}건\n` +
-                `실험 이후 남은 재고   : ${data.remainingStock}개\n` +
-                `오버셀 발생 여부      : ${data.oversold ? '예 (초기 재고보다 더 많이 팔림)' : '아니오'}`;
+                `락 방식                    : ${data.method}\n` +
+                `실험 시작 시 재고           : ${data.initialStock}개\n` +
+                `동시 요청 수                : ${data.threads}개\n` +
+                `성공 응답 건수              : ${data.successCount}건\n` +
+                `실패한 요청 수              : ${data.failureCount}건\n` +
+                `실험 이후 남은 재고         : ${data.remainingStock}개\n` +
+                `기대한 재고 감소량(응답 기준) : ${data.expectedDecrease}개\n` +
+                `실제 재고 감소량(재고 기준)   : ${data.actualDecrease}개\n` +
+                `재고 미반영 성공 응답 존재   : ${data.hasGhostSuccess ? '예' : '아니오'}`;
 
             const hintBox = document.getElementById('experimentHint');
             let hint = '';
             if (method === 'no-lock') {
-                if (data.oversold) {
-                    hint = 'no-lock에서는 동시성 상황에서 초기 재고보다 더 많이 판매되는 오버셀 현상이 발생할 수 있습니다.';
+                if (data.hasGhostSuccess) {
+                    hint = 'no-lock에서는 일부 요청에 대해 성공 응답을 보내놓고, 실제 재고에서는 그만큼 줄지 않는 상황이 발생할 수 있습니다.';
                 } else {
-                    hint = '이번 케이스에서는 우연히 오버셀이 발생하지 않았지만, no-lock 상태에서는 언제든 문제가 생길 수 있습니다.';
+                    hint = '이번 실험에서는 우연히 응답과 재고가 일치했지만, no-lock 상태에서는 언제든 불일치가 생길 수 있습니다.';
                 }
             } else if (method === 'lock') {
-                hint = 'lock(@Synchronized)은 한 JVM 인스턴스 안에서만 유효한 로컬 락입니다. 단일 서버에서는 안전하지만, 서버를 여러 대 띄우는 환경에서는 한계가 있습니다.';
+                hint = 'lock(@Synchronized)은 한 JVM 인스턴스 안에서만 유효한 로컬 락입니다. 단일 서버에서는 응답과 재고가 잘 맞지만, 서버를 여러 대 띄우는 환경에서는 한계가 있습니다.';
             } else if (method === 'pessimistic') {
-                hint = 'pessimistic 락은 DB 레벨에서 행(row)에 락을 걸기 때문에, 여러 서버가 동시에 같은 상품을 갱신해도 DB가 순서를 보장할 수 있습니다.';
+                hint = 'pessimistic 락은 DB 레벨에서 행(row)에 락을 걸기 때문에, 여러 서버가 동시에 같은 상품을 갱신해도 응답과 실제 재고가 어긋날 가능성을 줄여줍니다.';
             }
             hintBox.textContent = hint;
 
