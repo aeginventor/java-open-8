@@ -3,8 +3,7 @@ package com.example.resilient_purchase.api
 import com.example.resilient_purchase.domain.Product
 import com.example.resilient_purchase.repository.ProductRepository
 import com.example.resilient_purchase.service.ConcurrencyTestExecutor
-import com.example.resilient_purchase.service.OrderService
-import org.springframework.beans.factory.annotation.Qualifier
+import com.example.resilient_purchase.service.OrderServiceSelector
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
@@ -14,14 +13,7 @@ class ConcurrencyExperimentController(
 
     private val productRepository: ProductRepository,
 
-    @Qualifier("noLockOrderService")
-    private val noLockOrderService: OrderService,
-
-    @Qualifier("lockOrderService")
-    private val lockOrderService: OrderService,
-
-    @Qualifier("pessimisticLockOrderService")
-    private val pessimisticLockOrderService: OrderService,
+    private val orderServiceSelector: OrderServiceSelector,
 
     private val concurrencyTestExecutor: ConcurrencyTestExecutor
 ) {
@@ -54,13 +46,7 @@ class ConcurrencyExperimentController(
         )
     }
 
-    private fun selectOrderService(method: String): OrderService {
-        return when (method) {
-            "no-lock" -> noLockOrderService
-            "pessimistic" -> pessimisticLockOrderService
-            else -> lockOrderService
-        }
-    }
+    private fun selectOrderService(method: String) = orderServiceSelector.select(method)
 
 
     private fun getRemainingStock(productId: Long): Int {

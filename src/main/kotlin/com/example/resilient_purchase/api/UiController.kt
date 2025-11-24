@@ -5,10 +5,9 @@ import com.example.resilient_purchase.demo.GlobalLockDemoService
 import com.example.resilient_purchase.demo.LocalLockDemoService
 import com.example.resilient_purchase.repository.ProductRepository
 import com.example.resilient_purchase.service.ConcurrencyTestExecutor
-import com.example.resilient_purchase.service.OrderService
+import com.example.resilient_purchase.service.OrderServiceSelector
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceContext
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.util.concurrent.CountDownLatch
@@ -20,14 +19,7 @@ class UiController(
 
     private val productRepository: ProductRepository,
 
-    @Qualifier("noLockOrderService")
-    private val noLockOrderService: OrderService,
-
-    @Qualifier("lockOrderService")
-    private val lockOrderService: OrderService,
-
-    @Qualifier("pessimisticLockOrderService")
-    private val pessimisticLockOrderService: OrderService,
+    private val orderServiceSelector: OrderServiceSelector,
 
     @PersistenceContext
     private val entityManager: EntityManager,
@@ -95,13 +87,7 @@ class UiController(
     private fun findTargetProduct() = productRepository.findById(targetProductId)
         .orElseThrow { IllegalStateException("기본 상품(ID=1)이 필요합니다. data.sql을 확인해주세요.") }
 
-    private fun selectOrderService(method: String): OrderService {
-        return when (method) {
-            "no-lock" -> noLockOrderService
-            "pessimistic" -> pessimisticLockOrderService
-            else -> lockOrderService
-        }
-    }
+    private fun selectOrderService(method: String) = orderServiceSelector.select(method)
 
 
     private fun getFinalStock(): Int {
