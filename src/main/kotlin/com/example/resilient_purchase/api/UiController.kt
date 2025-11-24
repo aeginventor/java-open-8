@@ -35,6 +35,10 @@ class UiController(
 
     private val targetProductId: Long = 1L  // 실험용 기본 상품 ID
 
+    companion object {
+        private const val QUANTITY_PER_ORDER = 1
+    }
+
     @PostMapping("/reset-stock")
     fun resetStock(@RequestBody req: ResetStockRequest): ResponseEntity<StockResponse> {
         require(req.stock >= 0) { "재고는 0 이상이어야 합니다." }
@@ -70,37 +74,52 @@ class UiController(
     fun runExperiment(@RequestBody req: RunExperimentRequest): ResponseEntity<RunExperimentResult> {
         require(req.threads >= 1) { "동시 요청 수는 1 이상이어야 합니다." }
 
-        val product = productRepository.findById(targetProductId)
-            .orElseThrow { IllegalStateException("기본 상품(ID=1)이 필요합니다. data.sql을 확인해주세요.") }
-
+        val product = findTargetProduct()
         val initialStock = product.stock
-        val threads = req.threads
-        val method = req.method
+        val service = selectOrderService(req.method)
 
-        // 실험에서는 "요청당 1개"만 주문하는 시나리오로 고정
-        val quantity = 1
+        val (successCount, failureCount) = executeConcurrentOrders(
+            service, targetProductId, QUANTITY_PER_ORDER, req.method, req.threads
+        )
 
-        val service = when (method) {
+        val remainingStock = getFinalStock()
+        val result = buildExperimentResult(
+            req.method, initialStock, req.threads, successCount, failureCount, remainingStock
+        )
+
+        return ResponseEntity.ok(result)
+    }
+
+    private fun findTargetProduct() = productRepository.findById(targetProductId)
+        .orElseThrow { IllegalStateException("기본 상품(ID=1)이 필요합니다. data.sql을 확인해주세요.") }
+
+    private fun selectOrderService(method: String): OrderService {
+        return when (method) {
             "no-lock" -> noLockOrderService
             "pessimistic" -> pessimisticLockOrderService
             else -> lockOrderService
         }
+    }
 
+    private fun executeConcurrentOrders(
+        service: OrderService,
+        productId: Long,
+        quantity: Int,
+        method: String,
+        threads: Int
+    ): Pair<Int, Int> {
         val latch = CountDownLatch(threads)
         val pool = Executors.newFixedThreadPool(minOf(threads, 50))
-
         val successCount = AtomicInteger(0)
         val failureCount = AtomicInteger(0)
 
         repeat(threads) {
             pool.submit {
                 try {
-                    try {
-                        service.order(targetProductId, quantity, method)
-                        successCount.incrementAndGet()
-                    } catch (_: Exception) {
-                        failureCount.incrementAndGet()
-                    }
+                    service.order(productId, quantity, method)
+                    successCount.incrementAndGet()
+                } catch (_: Exception) {
+                    failureCount.incrementAndGet()
                 } finally {
                     latch.countDown()
                 }
@@ -110,32 +129,39 @@ class UiController(
         latch.await()
         pool.shutdown()
 
-        // JPA 1차 캐시 비우고, 실제 최신 재고 읽기
+        return Pair(successCount.get(), failureCount.get())
+    }
+
+    private fun getFinalStock(): Int {
         entityManager.clear()
-
-        val finalProduct = productRepository.findById(targetProductId)
+        return productRepository.findById(targetProductId)
             .orElseThrow { IllegalStateException("실험 중 상품이 사라졌습니다.") }
+            .stock
+    }
 
-        val remaining = finalProduct.stock
-
-        val expectedDecrease = successCount.get() * quantity
-        val actualDecrease = initialStock - remaining
-        // "재고에 반영되지 않은 성공 응답"이 하나 이상 있는지
+    private fun buildExperimentResult(
+        method: String,
+        initialStock: Int,
+        threads: Int,
+        successCount: Int,
+        failureCount: Int,
+        remainingStock: Int
+    ): RunExperimentResult {
+        val expectedDecrease = successCount * QUANTITY_PER_ORDER
+        val actualDecrease = initialStock - remainingStock
         val hasGhostSuccess = expectedDecrease > actualDecrease
 
-        val result = RunExperimentResult(
+        return RunExperimentResult(
             method = method,
             initialStock = initialStock,
             threads = threads,
-            successCount = successCount.get(),
-            failureCount = failureCount.get(),
-            remainingStock = remaining,
+            successCount = successCount,
+            failureCount = failureCount,
+            remainingStock = remainingStock,
             expectedDecrease = expectedDecrease,
             actualDecrease = actualDecrease,
             hasGhostSuccess = hasGhostSuccess
         )
-
-        return ResponseEntity.ok(result)
     }
 
     @GetMapping("/lock-concept-demo")
