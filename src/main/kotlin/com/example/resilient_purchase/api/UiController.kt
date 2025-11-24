@@ -21,7 +21,6 @@ data class StockResponse(
 
 data class RunExperimentRequest(
     val threads: Int = 200,
-    val quantity: Int = 1,
     val method: String = "no-lock"
 )
 
@@ -29,11 +28,10 @@ data class RunExperimentResult(
     val method: String,
     val initialStock: Int,
     val threads: Int,
-    val quantity: Int,
     val successCount: Int,
     val failureCount: Int,
     val remainingStock: Int,
-    val invariantHolds: Boolean
+    val oversold: Boolean
 )
 
 @RestController
@@ -90,7 +88,6 @@ class UiController(
 
         val initialStock = product.stock
         val threads = req.threads
-        val quantity = req.quantity
         val method = req.method
 
         val service = when (method) {
@@ -109,7 +106,8 @@ class UiController(
             pool.submit {
                 try {
                     try {
-                        service.order(targetProductId, quantity, method)
+                        // quantity는 1로 고정
+                        service.order(targetProductId, 1, method)
                         successCount.incrementAndGet()
                     } catch (_: Exception) {
                         failureCount.incrementAndGet()
@@ -127,18 +125,16 @@ class UiController(
             .orElseThrow { IllegalStateException("실험 중 상품이 사라졌습니다.") }
 
         val remaining = finalProduct.stock
-        val invariantHolds =
-            remaining >= 0 && successCount.get() * quantity + remaining == initialStock
+        val oversold = successCount.get() > initialStock
 
         val result = RunExperimentResult(
             method = method,
             initialStock = initialStock,
             threads = threads,
-            quantity = quantity,
             successCount = successCount.get(),
             failureCount = failureCount.get(),
             remainingStock = remaining,
-            invariantHolds = invariantHolds
+            oversold = oversold
         )
 
         return ResponseEntity.ok(result)
