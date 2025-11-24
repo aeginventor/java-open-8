@@ -146,6 +146,19 @@
     <div id="experimentHint" class="hint"></div>
 </section>
 
+<section>
+    <h2>4. 로컬 락 vs 비관적 락 개념 실험</h2>
+    <p style="font-size:13px;color:#555;">
+        이 실험은 실제 DB 대신, 메모리에 있는 재고 값을 가지고<br>
+        <strong>인스턴스별 로컬 락(@Synchronized)</strong>과<br>
+        <strong>공유 락(전역 락 = 비관적 락 개념)</strong>의 차이를 보여줍니다.
+        <br>초기 재고를 1개로 두고, 두 개의 "서버 인스턴스"가 동시에 1개씩 주문한다고 가정합니다.
+    </p>
+    <button class="secondary" onclick="runLockConceptDemo()">개념 실험 실행</button>
+    <div id="lockConceptResult" class="result-box" style="display:none;"></div>
+    <div id="lockConceptHint" class="hint"></div>
+</section>
+
 <script>
     async function resetStock() {
         const stockVal = parseInt(document.getElementById('stockInput').value, 10);
@@ -240,6 +253,38 @@
             hintBox.textContent = hint;
 
             fetchCurrentStock();
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+
+     async function runLockConceptDemo() {
+        try {
+            const resp = await fetch('/ui/lock-concept-demo');
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || '개념 실험 실행에 실패했습니다.');
+            }
+            const data = await resp.json();
+            const box = document.getElementById('lockConceptResult');
+            box.style.display = 'block';
+            box.textContent =
+                `초기 재고                    : ${data.initialStock}개\n` +
+                `\n` +
+                `[로컬 락 (@Synchronized, 인스턴스 기준)]\n` +
+                `성공 응답 건수               : ${data.localLockSuccessCount}건\n` +
+                `실험 이후 재고               : ${data.localLockFinalStock}개\n` +
+                `\n` +
+                `[공유 락 (전역 락 = 비관적 락 개념)]\n` +
+                `성공 응답 건수               : ${data.globalLockSuccessCount}건\n` +
+                `실험 이후 재고               : ${data.globalLockFinalStock}개`;
+
+            const hintBox = document.getElementById('lockConceptHint');
+            hintBox.textContent =
+                '로컬 락(@Synchronized)은 인스턴스마다 락이 따로라서, 서버 인스턴스를 둘로 나누면 동시에 들어갈 수 있습니다.\n' +
+                '그 결과, 어떤 경우에는 두 번 모두 "성공"했다고 응답하면서도 실제 재고는 그만큼 줄지 않는 문제가 생길 수 있습니다.\n' +
+                '반대로 공유 락(비관적 락처럼 공통 자원에 거는 락)은 여러 인스턴스가 있어도 한 번에 하나만 들어갈 수 있어,\n' +
+                '성공 응답 건수와 실제 재고 감소량이 일치하도록 만듭니다.';
         } catch (e) {
             alert(e.message);
         }
