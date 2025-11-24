@@ -120,8 +120,8 @@
     <h2>3. 동시 주문 실험</h2>
 
     <label>
-        동시 요청 수 (threads, 최대 200):
-        <input type="number" id="threadsInput" value="200" min="1" max="200">
+        동시 요청 수 (threads):
+        <input type="number" id="threadsInput" value="200" min="1">
     </label>
 
     <h3>4. 락 방식 선택</h3>
@@ -196,17 +196,13 @@
             alert('동시 요청 수는 1 이상이어야 합니다.');
             return;
         }
-        if (threadsVal > 200) {
-            alert('동시 요청 수는 최대 200까지 허용됩니다. 값을 200으로 조정합니다.');
-            document.getElementById('threadsInput').value = 200;
-        }
 
         try {
             const resp = await fetch('/ui/run-experiment', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    threads: Math.min(threadsVal, 200),
+                    threads: threadsVal,
                     method: method
                 })
             });

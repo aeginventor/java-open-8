@@ -91,7 +91,7 @@ class UiController(
 
     @PostMapping("/run-experiment")
     fun runExperiment(@RequestBody req: RunExperimentRequest): ResponseEntity<RunExperimentResult> {
-        require(req.threads in 1..200) { "동시 요청 수는 1 이상 200 이하여야 합니다." }
+        require(req.threads >= 1) { "동시 요청 수는 1 이상이어야 합니다." }
 
         val product = productRepository.findById(targetProductId)
             .orElseThrow { IllegalStateException("기본 상품(ID=1)이 필요합니다. data.sql을 확인해주세요.") }
