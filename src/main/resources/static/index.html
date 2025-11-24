@@ -105,7 +105,7 @@
     <label>
         초기 재고:
         <input type="number" id="stockInput" value="100" min="0">
-        <button class="primary" onclick="resetStock()">재고 초기화</button>
+        <button class="primary" onclick="resetStock()">재고 설정</button>
     </label>
     <div id="stockResetResult" class="hint"></div>
 </section>
@@ -122,10 +122,6 @@
     <label>
         동시 요청(threads):
         <input type="number" id="threadsInput" value="200" min="1">
-    </label>
-    <label>
-        주문 수량(quantity):
-        <input type="number" id="quantityInput" value="1" min="1">
     </label>
 
     <h3>4. 락 방식 선택</h3>
@@ -165,11 +161,11 @@
             });
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({}));
-                throw new Error(err.detail || '재고 초기화 실패');
+                throw new Error(err.detail || '재고 초기화에 실패했습니다.');
             }
             const data = await resp.json();
             document.getElementById('stockResetResult').textContent =
-                `상품 ID=${data.productId}의 재고가 ${data.stock}으로 설정되었습니다.`;
+                `상품 ID=${data.productId}의 재고를 ${data.stock}개로 설정했습니다.`;
             document.getElementById('currentStockDisplay').style.display = 'none';
         } catch (e) {
             alert(e.message);
@@ -181,12 +177,12 @@
             const resp = await fetch('/ui/current-stock');
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({}));
-                throw new Error(err.detail || '재고 조회 실패');
+                throw new Error(err.detail || '재고 조회에 실패했습니다.');
             }
             const data = await resp.json();
             const box = document.getElementById('currentStockDisplay');
             box.style.display = 'block';
-            box.textContent = `상품 ID=${data.productId}\n현재 재고: ${data.stock}`;
+            box.textContent = `상품 ID=${data.productId}\n현재 재고: ${data.stock}개`;
         } catch (e) {
             alert(e.message);
         }
@@ -194,15 +190,10 @@
 
     async function runExperiment() {
         const threadsVal = parseInt(document.getElementById('threadsInput').value, 10);
-        const quantityVal = parseInt(document.getElementById('quantityInput').value, 10);
         const method = document.querySelector('input[name="method"]:checked').value;
 
         if (isNaN(threadsVal) || threadsVal <= 0) {
-            alert('threads 는 1 이상이어야 합니다.');
-            return;
-        }
-        if (isNaN(quantityVal) || quantityVal <= 0) {
-            alert('quantity 는 1 이상이어야 합니다.');
+            alert('동시 요청 수는 1 이상이어야 합니다.');
             return;
         }
 
@@ -212,45 +203,42 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     threads: threadsVal,
-                    quantity: quantityVal,
                     method: method
                 })
             });
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({}));
-                throw new Error(err.detail || '실험 실행 실패');
+                throw new Error(err.detail || '실험 실행에 실패했습니다.');
             }
             const data = await resp.json();
             const box = document.getElementById('experimentResult');
             box.style.display = 'block';
             box.textContent =
-                `method        : ${data.method}\n` +
-                `initialStock  : ${data.initialStock}\n` +
-                `threads       : ${data.threads}\n` +
-                `quantity      : ${data.quantity}\n` +
-                `successCount  : ${data.successCount}\n` +
-                `failureCount  : ${data.failureCount}\n` +
-                `remainingStock: ${data.remainingStock}\n` +
-                `invariantHolds: ${data.invariantHolds}`;
+                `락 방식            : ${data.method}\n` +
+                `실험 시작 시 재고   : ${data.initialStock}개\n` +
+                `동시 요청 수        : ${data.threads}개\n` +
+                `성공한 주문 수      : ${data.successCount}건\n` +
+                `실패한 주문 수      : ${data.failureCount}건\n` +
+                `실험 이후 남은 재고 : ${data.remainingStock}개\n` +
+                `오버셀 발생 여부    : ${data.oversold ? '예 (초기 재고보다 더 많이 팔림)' : '아니오'}`;
 
             const hintBox = document.getElementById('experimentHint');
             let hint = '';
             if (method === 'no-lock') {
-                if (!data.invariantHolds) {
-                    hint = 'no-lock 에서는 동시성 상황에서 오버셀(재고 불일치)이 발생할 수 있습니다.';
+                if (data.oversold) {
+                    hint = 'no-lock에서는 동시성 상황에서 초기 재고보다 더 많이 판매되는 오버셀 현상이 발생할 수 있습니다.';
                 } else {
-                    hint = '이번 케이스에서는 우연히 불변식이 유지됐지만, no-lock 은 언제든 깨질 수 있습니다.';
+                    hint = '이번 케이스에서는 우연히 오버셀이 발생하지 않았지만, no-lock 상태에서는 언제든 문제가 생길 수 있습니다.';
                 }
             } else if (method === 'lock') {
-                hint = 'lock(@Synchronized)은 한 JVM 인스턴스 안에서만 유효한 로컬 락입니다. 단일 서버에는 안전하지만, 서버를 여러 대 띄우면 추가 전략이 필요합니다.';
+                hint = 'lock(@Synchronized)은 한 JVM 인스턴스 안에서만 유효한 로컬 락입니다. 단일 서버에서는 안전하지만, 서버를 여러 대 띄우는 환경에서는 한계가 있습니다.';
             } else if (method === 'pessimistic') {
                 hint = 'pessimistic 락은 DB 레벨에서 행(row)에 락을 걸기 때문에, 여러 서버가 동시에 같은 상품을 갱신해도 DB가 순서를 보장할 수 있습니다.';
             }
             hintBox.textContent = hint;
 
-            document.getElementById('currentStockDisplay').style.display = 'block';
-            document.getElementById('currentStockDisplay').textContent =
-                `상품 ID=1\n현재 재고: ${data.remainingStock}`;
+            // 🔄 실험 후 최신 재고를 다시 조회해서 표시
+            fetchCurrentStock();
         } catch (e) {
             alert(e.message);
         }
