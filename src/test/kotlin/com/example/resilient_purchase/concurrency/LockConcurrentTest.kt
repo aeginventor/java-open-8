@@ -1,4 +1,4 @@
-package com.example.resilient_purchase
+package com.example.resilient_purchase.concurrency
 
 import com.example.resilient_purchase.domain.Product
 import com.example.resilient_purchase.repository.ProductRepository

@@ -1,6 +1,6 @@
-package com.example.resilient_purchase
+package com.example.resilient_purchase.controller
 
-import com.example.resilient_purchase.api.OrderRequest
+import com.example.resilient_purchase.dto.OrderRequest
 import jakarta.validation.Validation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
