@@ -168,70 +168,76 @@ class UiController(
     fun lockConceptDemo(): ResponseEntity<LockConceptDemoResponse> {
         val initialStock = 1
 
-        // 1) 로컬 락(@Synchronized, 인스턴스 기준) 시나리오
-        DemoSharedStock.stock = initialStock
-
-        val localService1 = LocalLockDemoService()
-        val localService2 = LocalLockDemoService()
-
-        val localSuccessCount = java.util.concurrent.atomic.AtomicInteger(0)
-        val startLatch1 = java.util.concurrent.CountDownLatch(1)
-        val doneLatch1 = java.util.concurrent.CountDownLatch(2)
-
-        fun runLocal(service: LocalLockDemoService) = Thread {
-            startLatch1.await()
-            if (service.order()) {
-                localSuccessCount.incrementAndGet()
-            }
-            doneLatch1.countDown()
-        }
-
-        val lt1 = runLocal(localService1)
-        val lt2 = runLocal(localService2)
-        lt1.start()
-        lt2.start()
-
-        startLatch1.countDown()
-        doneLatch1.await()
-
-        val localFinalStock = DemoSharedStock.stock
-
-        // 2) 공유 락(전역 락 = 비관적 락 개념) 시나리오
-        DemoSharedStock.stock = initialStock
-
-        val globalService1 = GlobalLockDemoService()
-        val globalService2 = GlobalLockDemoService()
-
-        val globalSuccessCount = java.util.concurrent.atomic.AtomicInteger(0)
-        val startLatch2 = java.util.concurrent.CountDownLatch(1)
-        val doneLatch2 = java.util.concurrent.CountDownLatch(2)
-
-        fun runGlobal(service: GlobalLockDemoService) = Thread {
-            startLatch2.await()
-            if (service.order()) {
-                globalSuccessCount.incrementAndGet()
-            }
-            doneLatch2.countDown()
-        }
-
-        val gt1 = runGlobal(globalService1)
-        val gt2 = runGlobal(globalService2)
-        gt1.start()
-        gt2.start()
-
-        startLatch2.countDown()
-        doneLatch2.await()
-
-        val globalFinalStock = DemoSharedStock.stock
+        val (localSuccessCount, localFinalStock) = runLocalLockExperiment(initialStock)
+        val (globalSuccessCount, globalFinalStock) = runGlobalLockExperiment(initialStock)
 
         val response = LockConceptDemoResponse(
             initialStock = initialStock,
-            localLockSuccessCount = localSuccessCount.get(),
+            localLockSuccessCount = localSuccessCount,
             localLockFinalStock = localFinalStock,
-            globalLockSuccessCount = globalSuccessCount.get(),
+            globalLockSuccessCount = globalSuccessCount,
             globalLockFinalStock = globalFinalStock
         )
 
         return ResponseEntity.ok(response)
+    }
+
+    private fun runLocalLockExperiment(initialStock: Int): Pair<Int, Int> {
+        DemoSharedStock.stock = initialStock
+        val successCount = AtomicInteger(0)
+
+        runDemoThreads(
+            LocalLockDemoService(),
+            LocalLockDemoService(),
+            successCount
+        ) { service -> service.order() }
+
+        return Pair(successCount.get(), DemoSharedStock.stock)
+    }
+
+    private fun runGlobalLockExperiment(initialStock: Int): Pair<Int, Int> {
+        DemoSharedStock.stock = initialStock
+        val successCount = AtomicInteger(0)
+
+        runDemoThreads(
+            GlobalLockDemoService(),
+            GlobalLockDemoService(),
+            successCount
+        ) { service -> service.order() }
+
+        return Pair(successCount.get(), DemoSharedStock.stock)
+    }
+
+    private fun <T> runDemoThreads(
+        service1: T,
+        service2: T,
+        successCount: AtomicInteger,
+        orderAction: (T) -> Boolean
+    ) {
+        val startLatch = CountDownLatch(1)
+        val doneLatch = CountDownLatch(2)
+
+        val thread1 = createDemoThread(startLatch, doneLatch, successCount) { orderAction(service1) }
+        val thread2 = createDemoThread(startLatch, doneLatch, successCount) { orderAction(service2) }
+
+        thread1.start()
+        thread2.start()
+        startLatch.countDown()
+        doneLatch.await()
+    }
+
+    private fun createDemoThread(
+        startLatch: CountDownLatch,
+        doneLatch: CountDownLatch,
+        successCount: AtomicInteger,
+        orderAction: () -> Boolean
+    ): Thread {
+        return Thread {
+            startLatch.await()
+            if (orderAction()) {
+                successCount.incrementAndGet()
+            }
+            doneLatch.countDown()
+        }
     }
 }
