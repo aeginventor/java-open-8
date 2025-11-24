@@ -14,14 +14,18 @@ class OrderController(
     private val noLockOrderService: OrderService,
 
     @Qualifier("lockOrderService")
-    private val lockOrderService: OrderService
+    private val lockOrderService: OrderService,
+
+    @Qualifier("pessimisticLockOrderService")
+    private val pessimisticLockOrderService: OrderService
 ) {
 
     @PostMapping
     fun order(@Valid @RequestBody req: OrderRequest): ResponseEntity<Any> {
         val service = when (req.method) {
             "no-lock" -> noLockOrderService
-            else -> lockOrderService
+            "pessimistic" -> pessimisticLockOrderService
+            else -> lockOrderService   // 기본은 lock
         }
 
         val result = service.order(req.productId!!, req.quantity, req.method ?: "lock")
