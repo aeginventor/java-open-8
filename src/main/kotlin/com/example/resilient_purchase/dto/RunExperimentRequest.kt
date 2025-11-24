@@ -1,4 +1,4 @@
-package com.example.resilient_purchase.api
+package com.example.resilient_purchase.dto
 
 data class RunExperimentRequest(
     val threads: Int = 200,

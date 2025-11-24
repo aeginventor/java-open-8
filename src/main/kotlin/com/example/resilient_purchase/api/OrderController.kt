@@ -1,5 +1,6 @@
 package com.example.resilient_purchase.api
 
+import com.example.resilient_purchase.dto.OrderRequest
 import com.example.resilient_purchase.service.OrderServiceSelector
 import jakarta.validation.Valid
 import org.springframework.http.ResponseEntity

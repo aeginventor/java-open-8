@@ -1,6 +1,8 @@
 package com.example.resilient_purchase.api
 
 import com.example.resilient_purchase.domain.Product
+import com.example.resilient_purchase.dto.ConcurrencyExperimentRequest
+import com.example.resilient_purchase.dto.ConcurrencyExperimentResult
 import com.example.resilient_purchase.repository.ProductRepository
 import com.example.resilient_purchase.service.ConcurrencyTestExecutor
 import com.example.resilient_purchase.service.OrderServiceSelector

@@ -1,4 +1,4 @@
-package com.example.resilient_purchase.api
+package com.example.resilient_purchase.dto
 
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotNull
