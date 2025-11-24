@@ -120,8 +120,12 @@
     <h2>3. 동시 주문 실험</h2>
 
     <label>
-        동시 요청(threads):
-        <input type="number" id="threadsInput" value="200" min="1">
+        동시 요청 수 (threads, 최대 200):
+        <input type="number" id="threadsInput" value="200" min="1" max="200">
+    </label>
+    <label>
+        한 요청당 주문 수량 (quantity):
+        <input type="number" id="quantityInput" value="1" min="1">
     </label>
 
     <h3>4. 락 방식 선택</h3>
@@ -190,10 +194,19 @@
 
     async function runExperiment() {
         const threadsVal = parseInt(document.getElementById('threadsInput').value, 10);
+        const quantityVal = parseInt(document.getElementById('quantityInput').value, 10);
         const method = document.querySelector('input[name="method"]:checked').value;
 
         if (isNaN(threadsVal) || threadsVal <= 0) {
             alert('동시 요청 수는 1 이상이어야 합니다.');
+            return;
+        }
+        if (threadsVal > 200) {
+            alert('동시 요청 수는 최대 200까지 허용됩니다. 값을 200으로 조정합니다.');
+            document.getElementById('threadsInput').value = 200;
+        }
+        if (isNaN(quantityVal) || quantityVal <= 0) {
+            alert('주문 수량은 1 이상이어야 합니다.');
             return;
         }
 
@@ -202,7 +215,8 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    threads: threadsVal,
+                    threads: Math.min(threadsVal, 200),
+                    quantity: quantityVal,
                     method: method
                 })
             });
@@ -214,13 +228,14 @@
             const box = document.getElementById('experimentResult');
             box.style.display = 'block';
             box.textContent =
-                `락 방식            : ${data.method}\n` +
-                `실험 시작 시 재고   : ${data.initialStock}개\n` +
-                `동시 요청 수        : ${data.threads}개\n` +
-                `성공한 주문 수      : ${data.successCount}건\n` +
-                `실패한 주문 수      : ${data.failureCount}건\n` +
-                `실험 이후 남은 재고 : ${data.remainingStock}개\n` +
-                `오버셀 발생 여부    : ${data.oversold ? '예 (초기 재고보다 더 많이 팔림)' : '아니오'}`;
+                `락 방식              : ${data.method}\n` +
+                `실험 시작 시 재고     : ${data.initialStock}개\n` +
+                `동시 요청 수          : ${data.threads}개\n` +
+                `요청당 주문 수량      : ${data.quantity}개\n` +
+                `성공한 주문 수        : ${data.successCount}건\n` +
+                `실패한 주문 수        : ${data.failureCount}건\n` +
+                `실험 이후 남은 재고   : ${data.remainingStock}개\n` +
+                `오버셀 발생 여부      : ${data.oversold ? '예 (초기 재고보다 더 많이 팔림)' : '아니오'}`;
 
             const hintBox = document.getElementById('experimentHint');
             let hint = '';
@@ -237,7 +252,6 @@
             }
             hintBox.textContent = hint;
 
-            // 🔄 실험 후 최신 재고를 다시 조회해서 표시
             fetchCurrentStock();
         } catch (e) {
             alert(e.message);
