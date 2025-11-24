@@ -1,5 +1,8 @@
 package com.example.resilient_purchase.api
 
+import com.example.resilient_purchase.demo.DemoSharedStock
+import com.example.resilient_purchase.demo.GlobalLockDemoService
+import com.example.resilient_purchase.demo.LocalLockDemoService
 import com.example.resilient_purchase.repository.ProductRepository
 import com.example.resilient_purchase.service.OrderService
 import jakarta.persistence.EntityManager
@@ -10,77 +13,6 @@ import org.springframework.web.bind.annotation.*
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
-
-data class ResetStockRequest(
-    val stock: Int
-)
-
-data class StockResponse(
-    val productId: Long,
-    val stock: Int
-)
-
-data class RunExperimentRequest(
-    val threads: Int = 200,
-    val method: String = "no-lock"
-)
-
-data class RunExperimentResult(
-    val method: String,
-    val initialStock: Int,
-    val threads: Int,
-    val successCount: Int,        // = "성공 응답 건수"
-    val failureCount: Int,
-    val remainingStock: Int,
-    val expectedDecrease: Int,    // 성공 응답 기준 "기대되는 감소량"
-    val actualDecrease: Int,      // 재고 기준 "실제 감소량"
-    val hasGhostSuccess: Boolean  // "재고에 반영되지 않은 성공 응답 존재 여부"
-)
-
-data class LockConceptDemoResponse(
-    val initialStock: Int,
-    val localLockSuccessCount: Int,
-    val localLockFinalStock: Int,
-    val globalLockSuccessCount: Int,
-    val globalLockFinalStock: Int
-)
-
-object DemoSharedStock {
-    @Volatile
-    var stock: Int = 0
-}
-
-class LocalLockDemoService {
-
-    @Synchronized
-    fun order(): Boolean {
-        if (DemoSharedStock.stock <= 0) {
-            return false
-        }
-
-        Thread.sleep(100)
-        DemoSharedStock.stock -= 1
-        return true
-    }
-}
-
-class GlobalLockDemoService {
-
-    companion object {
-        private val lock = Any()
-    }
-
-    fun order(): Boolean {
-        synchronized(lock) {
-            if (DemoSharedStock.stock <= 0) {
-                return false
-            }
-            Thread.sleep(100)
-            DemoSharedStock.stock -= 1
-            return true
-        }
-    }
-}
 
 @RestController
 @RequestMapping("/ui")
