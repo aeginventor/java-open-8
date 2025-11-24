@@ -37,6 +37,51 @@ data class RunExperimentResult(
     val hasGhostSuccess: Boolean  // "재고에 반영되지 않은 성공 응답 존재 여부"
 )
 
+data class LockConceptDemoResponse(
+    val initialStock: Int,
+    val localLockSuccessCount: Int,
+    val localLockFinalStock: Int,
+    val globalLockSuccessCount: Int,
+    val globalLockFinalStock: Int
+)
+
+object DemoSharedStock {
+    @Volatile
+    var stock: Int = 0
+}
+
+class LocalLockDemoService {
+
+    @Synchronized
+    fun order(): Boolean {
+        if (DemoSharedStock.stock <= 0) {
+            return false
+        }
+
+        Thread.sleep(100)
+        DemoSharedStock.stock -= 1
+        return true
+    }
+}
+
+class GlobalLockDemoService {
+
+    companion object {
+        private val lock = Any()
+    }
+
+    fun order(): Boolean {
+        synchronized(lock) {
+            if (DemoSharedStock.stock <= 0) {
+                return false
+            }
+            Thread.sleep(100)
+            DemoSharedStock.stock -= 1
+            return true
+        }
+    }
+}
+
 @RestController
 @RequestMapping("/ui")
 class UiController(
