@@ -144,57 +144,20 @@
   - 재고 부족 상황 → 400 BAD_REQUEST + BAD_REQUEST 에러 코드
 이를 통해 “도메인 로직, 입력 레벨, API 레벨”에서 각각의 실패 케이스를 다루고 있음을 보장합니다.
 
-## 6. 동시성 실험 방법
+## 6. 동시성 실험 방법 (웹 UI)
 
-동시성 이슈를 직접 체험하기 위해,  
-하나의 HTTP 요청으로 **재고 초기화 → 동시 주문 → 결과 집계**까지 실행하는 실험용 API를 제공합니다.
+서버를 실행한 뒤 브라우저에서 `http://localhost:8080/`에 접속하면  
+재고 설정 / 재고 조회 / 동시 주문 실험 / 락 방식 선택을 한 화면에서 수행할 수 있습니다.
 
-### 6.1 실험 엔드포인트
-
-`POST /experiments/concurrency`
-
-**Request 예시**
-
-```json
-{
-  "initialStock": 100,
-  "threads": 200,
-  "quantity": 1,
-  "method": "no-lock"
-}
-```
-- initialStock: 실험 시작 시 재고 (기본 100)
-- threads: 동시에 주문을 시도할 스레드 수 (기본 200)
-- quantity: 한 번의 주문에서 감소시키는 재고 수 (기본 1)
-- method: "no-lock", "lock", "pessimistic" 중 선택
-
-**Response 예시 (no-lock)**
-```
-{
-  "method": "no-lock",
-  "initialStock": 100,
-  "threads": 200,
-  "quantity": 1,
-  "successCount": 130,
-  "failureCount": 70,
-  "remainingStock": -30,
-  "invariantHolds": false
-}
-```
-
-**Response 예시 (lock)**
-```
-{
-  "method": "lock",
-  "initialStock": 100,
-  "threads": 200,
-  "quantity": 1,
-  "successCount": 100,
-  "failureCount": 100,
-  "remainingStock": 0,
-  "invariantHolds": true
-}
-```
+1. 상단에서 초기 재고를 입력하고 **[재고 초기화]** 버튼을 눌러 재고를 설정합니다.
+2. **[재고 조회]** 버튼으로 현재 재고를 확인합니다.
+3. 동시 요청 수(threads)와 주문 수량(quantity)을 입력합니다.
+4. `no-lock`, `lock(@Synchronized)`, `pessimistic(DB 비관적 락)` 중 하나를 선택하고  
+   **[동시 주문 실험 실행]** 버튼을 누르면,
+  - 성공/실패 횟수
+  - 남은 재고
+  - `successCount × quantity + remainingStock == initialStock` 불변식 유지 여부  
+    를 한 눈에 확인할 수 있습니다.
 
 ## 7. 향후 확장 계획
 
