@@ -9,8 +9,8 @@ class NoLockOrderService(private val productRepository: ProductRepository) : Ord
 
     @Transactional
     override fun order(productId: Long, quantity: Int, method: String): Map<String, Any> {
-        val product = productRepository.findById(productId).orElseThrow { IllegalArgumentException("product not found") }
-        if (product.stock < quantity) throw IllegalStateException("insufficient stock")
+        val product = productRepository.findById(productId).orElseThrow { IllegalArgumentException("상품을 찾지 못했습니다.") }
+        if (product.stock < quantity) throw IllegalStateException("재고 부족")
         // 여기서 race condition 가능
         product.stock -= quantity
         productRepository.save(product)
