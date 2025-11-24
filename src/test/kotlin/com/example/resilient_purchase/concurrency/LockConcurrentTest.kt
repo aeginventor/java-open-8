@@ -1,6 +1,6 @@
 package com.example.resilient_purchase.concurrency
 
-import com.example.resilient_purchase.domain.Product
+import com.example.resilient_purchase.fixture.TestFixture
 import com.example.resilient_purchase.repository.ProductRepository
 import com.example.resilient_purchase.service.OrderService
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -8,9 +8,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 
 @SpringBootTest
 class LockConcurrentTest(
@@ -20,46 +17,33 @@ class LockConcurrentTest(
 
     @Test
     fun `lock 기반 동시성 테스트 - 재고와 성공 횟수의 합이 초기 재고와 동일해야 한다`() {
-        // given
-        val initialStock = 100
-        val saved = productRepository.save(Product(name = "lock-sample", stock = initialStock))
-        val productId = saved.id!!
+        val product = createProduct()
+        val service = getLockOrderService()
 
-        val svc = applicationContext.getBean("lockOrderService", OrderService::class.java)
+        val testResult = TestFixture.runConcurrencyTest(service, product.id!!, THREAD_COUNT)
 
-        val threads = 200
-        val latch = CountDownLatch(threads)
-        val pool = Executors.newFixedThreadPool(50)
+        val remaining = getRemainingStock(product.id!!)
+        assertValidStockState(remaining, testResult.successCount)
+    }
 
-        val successCount = AtomicInteger(0)
+    private fun createProduct() = TestFixture.createTestProduct(
+        productRepository, "lock-sample", INITIAL_STOCK
+    )
 
-        // when
-        repeat(threads) {
-            pool.submit {
-                try {
-                    try {
-                        svc.order(productId, 1, "lock")
-                        successCount.incrementAndGet()
-                    } catch (_: Exception) {
-                        // 재고 부족 등의 예외는 실패로 간주하고 카운트하지 않음
-                    }
-                } finally {
-                    latch.countDown()
-                }
-            }
-        }
+    private fun getLockOrderService(): OrderService {
+        return applicationContext.getBean("lockOrderService", OrderService::class.java)
+    }
 
-        latch.await()
-        pool.shutdown()
+    private fun getRemainingStock(productId: Long) = productRepository.findById(productId).get().stock
 
-        // then
-        val remaining = productRepository.findById(productId).get().stock
-        println("락 서비스 테스트 종료 — 남은 재고: $remaining, 성공 횟수: ${successCount.get()}")
-
-        // 1) 재고는 절대 음수가 되지 않아야 한다
+    private fun assertValidStockState(remaining: Int, successCount: Int) {
+        println("락 서비스 테스트 종료 — 남은 재고: $remaining, 성공 횟수: $successCount")
         assertTrue(remaining >= 0)
+        assertEquals(INITIAL_STOCK, successCount + remaining)
+    }
 
-        // 2) (성공한 구매 횟수 + 남은 재고) == 초기 재고
-        assertEquals(initialStock, successCount.get() + remaining)
+    companion object {
+        private const val INITIAL_STOCK = 100
+        private const val THREAD_COUNT = 200
     }
 }

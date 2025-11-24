@@ -1,14 +1,12 @@
 package com.example.resilient_purchase.concurrency
 
-import com.example.resilient_purchase.domain.Product
+import com.example.resilient_purchase.fixture.TestFixture
 import com.example.resilient_purchase.repository.ProductRepository
 import com.example.resilient_purchase.service.OrderService
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
 
 @SpringBootTest
 class NoLockConcurrentTest(
@@ -18,36 +16,32 @@ class NoLockConcurrentTest(
 
     @Test
     fun `no-lock 동시성 오버셀 재현 테스트`() {
-        // 초기 데이터 세팅
-        val p = productRepository.save(Product(name = "concurrency-sample", stock = 100))
-        val productId = p.id!!
+        val product = createProduct()
+        val service = getNoLockOrderService()
 
-        // noLockOrderService 빈을 직접 가져옴 (이 서비스는 다음 단계에서 구현)
-        val svc = applicationContext.getBean("noLockOrderService", OrderService::class.java)
+        TestFixture.executeConcurrentOrders(service, product.id!!, THREAD_COUNT)
 
-        val threads = 200
-        val latch = CountDownLatch(threads)
-        val pool = Executors.newFixedThreadPool(50)
+        val remaining = getRemainingStock(product.id!!)
+        assertOversellOccurred(remaining)
+    }
 
-        repeat(threads) {
-            pool.submit {
-                try {
-                    try {
-                        svc.order(productId, 1, "no-lock")
-                    } catch (e: Exception) {
-                        // 실패 무시(오버셀/예외 발생 예상)
-                    }
-                } finally {
-                    latch.countDown()
-                }
-            }
-        }
-        latch.await()
-        pool.shutdown()
+    private fun createProduct() = TestFixture.createTestProduct(
+        productRepository, "concurrency-sample", INITIAL_STOCK
+    )
 
-        val remaining = productRepository.findById(productId).get().stock
+    private fun getNoLockOrderService(): OrderService {
+        return applicationContext.getBean("noLockOrderService", OrderService::class.java)
+    }
+
+    private fun getRemainingStock(productId: Long) = productRepository.findById(productId).get().stock
+
+    private fun assertOversellOccurred(remaining: Int) {
         println("테스트 종료 — 남은 재고: $remaining")
-        // 기대: no-lock에서는 오버셀(음수 또는 0 미만 혹은 <100의 값)이 발생할 가능성 존재
-        assertTrue(remaining < 100)
+        assertTrue(remaining < INITIAL_STOCK)
+    }
+
+    companion object {
+        private const val INITIAL_STOCK = 100
+        private const val THREAD_COUNT = 200
     }
 }
