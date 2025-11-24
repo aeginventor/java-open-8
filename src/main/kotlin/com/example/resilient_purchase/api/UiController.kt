@@ -1,6 +1,5 @@
 package com.example.resilient_purchase.api
 
-import com.example.resilient_purchase.domain.Product
 import com.example.resilient_purchase.repository.ProductRepository
 import com.example.resilient_purchase.service.OrderService
 import org.springframework.beans.factory.annotation.Qualifier
@@ -9,6 +8,8 @@ import org.springframework.web.bind.annotation.*
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceContext
 
 data class ResetStockRequest(
     val stock: Int
@@ -47,8 +48,11 @@ class UiController(
     private val lockOrderService: OrderService,
 
     @Qualifier("pessimisticLockOrderService")
-    private val pessimisticLockOrderService: OrderService
-) {
+    private val pessimisticLockOrderService: OrderService,
+
+    @PersistenceContext
+    private val entityManager: EntityManager
+)  {
 
     private val targetProductId: Long = 1L
 
@@ -83,6 +87,7 @@ class UiController(
 
     @PostMapping("/run-experiment")
     fun runExperiment(@RequestBody req: RunExperimentRequest): ResponseEntity<RunExperimentResult> {
+        // 1) 실험 시작 시 재고 읽기
         val product = productRepository.findById(targetProductId)
             .orElseThrow { IllegalStateException("기본 상품(ID=1)이 필요합니다. data.sql을 확인해주세요.") }
 
@@ -106,7 +111,6 @@ class UiController(
             pool.submit {
                 try {
                     try {
-                        // quantity는 1로 고정
                         service.order(targetProductId, 1, method)
                         successCount.incrementAndGet()
                     } catch (_: Exception) {
@@ -121,10 +125,13 @@ class UiController(
         latch.await()
         pool.shutdown()
 
+        entityManager.clear()
+
         val finalProduct = productRepository.findById(targetProductId)
             .orElseThrow { IllegalStateException("실험 중 상품이 사라졌습니다.") }
 
         val remaining = finalProduct.stock
+
         val oversold = successCount.get() > initialStock
 
         val result = RunExperimentResult(
