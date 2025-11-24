@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>동시성 안전 구매 API 실험</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            max-width: 900px;
+            margin: 24px auto;
+            padding: 0 16px 48px;
+            background: #f7f7f9;
+        }
+        h1, h2, h3 {
+            margin-bottom: 8px;
+        }
+        section {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+        }
+        label {
+            display: block;
+            margin: 4px 0;
+        }
+        input[type="number"] {
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            margin-right: 8px;
+            width: 120px;
+        }
+        button {
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        button.primary {
+            background: #4b8cf5;
+            color: white;
+        }
+        button.secondary {
+            background: #e0e0e0;
+        }
+        .radio-group {
+            display: flex;
+            gap: 16px;
+            margin: 8px 0;
+        }
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .result-box {
+            background: #f3f5ff;
+            border-radius: 8px;
+            padding: 8px 10px;
+            margin-top: 8px;
+            font-family: "JetBrains Mono", "SF Mono", monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+        }
+        .hint {
+            margin-top: 6px;
+            font-size: 13px;
+            color: #555;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 999px;
+            font-size: 11px;
+            margin-left: 4px;
+        }
+        .badge.lock {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+        .badge.pessimistic {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .badge.nolock {
+            background: #ffebee;
+            color: #c62828;
+        }
+    </style>
+</head>
+<body>
+<h1>동시성 안전 구매 API 실험 UI</h1>
+<p style="font-size:14px;color:#555;">
+    1) 재고를 설정하고<br>
+    2) 현재 재고를 조회하고<br>
+    3) 동시 주문 실험을 수행하면서<br>
+    4) <strong>no-lock / 로컬 락 / 비관적 락</strong>의 차이를 직접 확인할 수 있습니다.
+</p>
+
+<section>
+    <h2>1. 재고 설정</h2>
+    <label>
+        초기 재고:
+        <input type="number" id="stockInput" value="100" min="0">
+        <button class="primary" onclick="resetStock()">재고 초기화</button>
+    </label>
+    <div id="stockResetResult" class="hint"></div>
+</section>
+
+<section>
+    <h2>2. 현재 재고 조회</h2>
+    <button class="secondary" onclick="fetchCurrentStock()">재고 조회</button>
+    <div id="currentStockDisplay" class="result-box" style="display:none;"></div>
+</section>
+
+<section>
+    <h2>3. 동시 주문 실험</h2>
+
+    <label>
+        동시 요청(threads):
+        <input type="number" id="threadsInput" value="200" min="1">
+    </label>
+    <label>
+        주문 수량(quantity):
+        <input type="number" id="quantityInput" value="1" min="1">
+    </label>
+
+    <h3>4. 락 방식 선택</h3>
+    <div class="radio-group">
+        <label>
+            <input type="radio" name="method" value="no-lock" checked>
+            no-lock <span class="badge nolock">락 없음</span>
+        </label>
+        <label>
+            <input type="radio" name="method" value="lock">
+            lock <span class="badge lock">JVM 로컬 락 (@Synchronized)</span>
+        </label>
+        <label>
+            <input type="radio" name="method" value="pessimistic">
+            pessimistic <span class="badge pessimistic">DB 비관적 락</span>
+        </label>
+    </div>
+
+    <button class="primary" onclick="runExperiment()">동시 주문 실험 실행</button>
+
+    <div id="experimentResult" class="result-box" style="display:none;"></div>
+    <div id="experimentHint" class="hint"></div>
+</section>
+
+<script>
+    async function resetStock() {
+        const stockVal = parseInt(document.getElementById('stockInput').value, 10);
+        if (isNaN(stockVal) || stockVal < 0) {
+            alert('0 이상의 숫자를 입력해주세요.');
+            return;
+        }
+        try {
+            const resp = await fetch('/ui/reset-stock', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({stock: stockVal})
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || '재고 초기화 실패');
+            }
+            const data = await resp.json();
+            document.getElementById('stockResetResult').textContent =
+                `상품 ID=${data.productId}의 재고가 ${data.stock}으로 설정되었습니다.`;
+            document.getElementById('currentStockDisplay').style.display = 'none';
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+
+    async function fetchCurrentStock() {
+        try {
+            const resp = await fetch('/ui/current-stock');
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || '재고 조회 실패');
+            }
+            const data = await resp.json();
+            const box = document.getElementById('currentStockDisplay');
+            box.style.display = 'block';
+            box.textContent = `상품 ID=${data.productId}\n현재 재고: ${data.stock}`;
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+
+    async function runExperiment() {
+        const threadsVal = parseInt(document.getElementById('threadsInput').value, 10);
+        const quantityVal = parseInt(document.getElementById('quantityInput').value, 10);
+        const method = document.querySelector('input[name="method"]:checked').value;
+
+        if (isNaN(threadsVal) || threadsVal <= 0) {
+            alert('threads 는 1 이상이어야 합니다.');
+            return;
+        }
+        if (isNaN(quantityVal) || quantityVal <= 0) {
+            alert('quantity 는 1 이상이어야 합니다.');
+            return;
+        }
+
+        try {
+            const resp = await fetch('/ui/run-experiment', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    threads: threadsVal,
+                    quantity: quantityVal,
+                    method: method
+                })
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || '실험 실행 실패');
+            }
+            const data = await resp.json();
+            const box = document.getElementById('experimentResult');
+            box.style.display = 'block';
+            box.textContent =
+                `method        : ${data.method}\n` +
+                `initialStock  : ${data.initialStock}\n` +
+                `threads       : ${data.threads}\n` +
+                `quantity      : ${data.quantity}\n` +
+                `successCount  : ${data.successCount}\n` +
+                `failureCount  : ${data.failureCount}\n` +
+                `remainingStock: ${data.remainingStock}\n` +
+                `invariantHolds: ${data.invariantHolds}`;
+
+            const hintBox = document.getElementById('experimentHint');
+            let hint = '';
+            if (method === 'no-lock') {
+                if (!data.invariantHolds) {
+                    hint = 'no-lock 에서는 동시성 상황에서 오버셀(재고 불일치)이 발생할 수 있습니다.';
+                } else {
+                    hint = '이번 케이스에서는 우연히 불변식이 유지됐지만, no-lock 은 언제든 깨질 수 있습니다.';
+                }
+            } else if (method === 'lock') {
+                hint = 'lock(@Synchronized)은 한 JVM 인스턴스 안에서만 유효한 로컬 락입니다. 단일 서버에는 안전하지만, 서버를 여러 대 띄우면 추가 전략이 필요합니다.';
+            } else if (method === 'pessimistic') {
+                hint = 'pessimistic 락은 DB 레벨에서 행(row)에 락을 걸기 때문에, 여러 서버가 동시에 같은 상품을 갱신해도 DB가 순서를 보장할 수 있습니다.';
+            }
+            hintBox.textContent = hint;
+
+            document.getElementById('currentStockDisplay').style.display = 'block';
+            document.getElementById('currentStockDisplay').textContent =
+                `상품 ID=1\n현재 재고: ${data.remainingStock}`;
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+</script>
+</body>
+</html>
