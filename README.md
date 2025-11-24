@@ -144,34 +144,57 @@
   - 재고 부족 상황 → 400 BAD_REQUEST + BAD_REQUEST 에러 코드
 이를 통해 “도메인 로직, 입력 레벨, API 레벨”에서 각각의 실패 케이스를 다루고 있음을 보장합니다.
 
-## 6. 동시성 부하 테스트 방법
-동시성 이슈를 실제로 체험하기 위해 간단한 부하 스크립트를 제공합니다.
+## 6. 동시성 실험 방법
 
-### 6.1 no-lock 부하 테스트
-```
-bash scripts/batch_order_no_lock.sh 1 200
-curl "http://localhost:8080/products/1"
-```
-- productId = 1에 대해, no-lock 방법으로 200번 동시 주문 요청을 보냅니다.
-- 이후 /products/1 API로 남은 재고를 확인합니다.
-- 재고가 예상과 다르게 줄어들거나, 이상한 값이 나올 수 있습니다.
+동시성 이슈를 직접 체험하기 위해,  
+하나의 HTTP 요청으로 **재고 초기화 → 동시 주문 → 결과 집계**까지 실행하는 실험용 API를 제공합니다.
 
-### 6.2 로컬 락 부하 테스트
-```
-bash scripts/batch_order_lock.sh 1 200
-curl "http://localhost:8080/products/1"
-```
-- 동일한 조건에서 local lock 방식을 사용할 경우
-- 재고가 음수로 떨어지지 않고, “성공한 주문 수 + 남은 재고 = 초기 재고”가 성립하는지 확인합니다.
+### 6.1 실험 엔드포인트
 
-### 6.3 비관적 락 부하 테스트
+`POST /experiments/concurrency`
+
+**Request 예시**
+
+```json
+{
+  "initialStock": 100,
+  "threads": 200,
+  "quantity": 1,
+  "method": "no-lock"
+}
 ```
-bash scripts/batch_order_pessimistic.sh 1 200
-curl "http://localhost:8080/products/1"
+- initialStock: 실험 시작 시 재고 (기본 100)
+- threads: 동시에 주문을 시도할 스레드 수 (기본 200)
+- quantity: 한 번의 주문에서 감소시키는 재고 수 (기본 1)
+- method: "no-lock", "lock", "pessimistic" 중 선택
+
+**Response 예시 (no-lock)**
 ```
-- 비관적 락 전략을 사용할 경우에도,
-- “성공한 주문 수 + 남은 재고 = 초기 재고” 불변식이 유지되는지 확인합니다.
-- 단일 인스턴스 환경에서는 @Synchronized와 결과가 비슷해 보일 수 있으나, 실제로는 DB 차원에서 락을 걸고 있기 때문에, 다중 인스턴스 환경에서도 동작한다는 차이가 있습니다.
+{
+  "method": "no-lock",
+  "initialStock": 100,
+  "threads": 200,
+  "quantity": 1,
+  "successCount": 130,
+  "failureCount": 70,
+  "remainingStock": -30,
+  "invariantHolds": false
+}
+```
+
+**Response 예시 (lock)**
+```
+{
+  "method": "lock",
+  "initialStock": 100,
+  "threads": 200,
+  "quantity": 1,
+  "successCount": 100,
+  "failureCount": 100,
+  "remainingStock": 0,
+  "invariantHolds": true
+}
+```
 
 ## 7. 향후 확장 계획
 
