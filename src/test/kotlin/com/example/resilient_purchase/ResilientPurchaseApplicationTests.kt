@@ -1,0 +1,13 @@
+package com.example.resilient_purchase
+
+import org.junit.jupiter.api.Test
+import org.springframework.boot.test.context.SpringBootTest
+
+@SpringBootTest
+class ResilientPurchaseApplicationTests {
+
+	@Test
+	fun contextLoads() {
+	}
+
+}
