@@ -44,14 +44,14 @@ class OrderControllerTest(
     }
 
     @Test
-    fun `productId 없이 요청하면 400 상태 코드를 반환해야 한다`() {
+    fun `productId 없이 요청하면 400과 에러 응답을 반환해야 한다`() {
         // given
         val json = """
-            {
-              "quantity": 1,
-              "method": "lock"
-            }
-        """.trimIndent()
+        {
+          "quantity": 1,
+          "method": "lock"
+        }
+    """.trimIndent()
 
         // when & then
         mockMvc.perform(
@@ -60,5 +60,31 @@ class OrderControllerTest(
                 .content(json)
         )
             .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error").value("VALIDATION_ERROR"))
+    }
+
+    @Test
+    fun `재고보다 많은 수량을 주문하면 BAD_REQUEST 에러를 반환해야 한다`() {
+        // given
+        val product = productRepository.save(Product(name = "no-stock", stock = 0))
+
+        val json = """
+        {
+          "productId": ${product.id},
+          "quantity": 1,
+          "method": "lock"
+        }
+    """.trimIndent()
+
+        // when & then
+        mockMvc.perform(
+            post("/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json)
+        )
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
     }
 }
