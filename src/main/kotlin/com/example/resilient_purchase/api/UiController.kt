@@ -205,4 +205,75 @@ class UiController(
 
         return ResponseEntity.ok(result)
     }
+
+    @GetMapping("/lock-concept-demo")
+    fun lockConceptDemo(): ResponseEntity<LockConceptDemoResponse> {
+        val initialStock = 1
+
+        // 1) 로컬 락(@Synchronized, 인스턴스 기준) 시나리오
+        DemoSharedStock.stock = initialStock
+
+        val localService1 = LocalLockDemoService()
+        val localService2 = LocalLockDemoService()
+
+        val localSuccessCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val startLatch1 = java.util.concurrent.CountDownLatch(1)
+        val doneLatch1 = java.util.concurrent.CountDownLatch(2)
+
+        fun runLocal(service: LocalLockDemoService) = Thread {
+            startLatch1.await()
+            if (service.order()) {
+                localSuccessCount.incrementAndGet()
+            }
+            doneLatch1.countDown()
+        }
+
+        val lt1 = runLocal(localService1)
+        val lt2 = runLocal(localService2)
+        lt1.start()
+        lt2.start()
+
+        startLatch1.countDown()
+        doneLatch1.await()
+
+        val localFinalStock = DemoSharedStock.stock
+
+        // 2) 공유 락(전역 락 = 비관적 락 개념) 시나리오
+        DemoSharedStock.stock = initialStock
+
+        val globalService1 = GlobalLockDemoService()
+        val globalService2 = GlobalLockDemoService()
+
+        val globalSuccessCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val startLatch2 = java.util.concurrent.CountDownLatch(1)
+        val doneLatch2 = java.util.concurrent.CountDownLatch(2)
+
+        fun runGlobal(service: GlobalLockDemoService) = Thread {
+            startLatch2.await()
+            if (service.order()) {
+                globalSuccessCount.incrementAndGet()
+            }
+            doneLatch2.countDown()
+        }
+
+        val gt1 = runGlobal(globalService1)
+        val gt2 = runGlobal(globalService2)
+        gt1.start()
+        gt2.start()
+
+        startLatch2.countDown()
+        doneLatch2.await()
+
+        val globalFinalStock = DemoSharedStock.stock
+
+        val response = LockConceptDemoResponse(
+            initialStock = initialStock,
+            localLockSuccessCount = localSuccessCount.get(),
+            localLockFinalStock = localFinalStock,
+            globalLockSuccessCount = globalSuccessCount.get(),
+            globalLockFinalStock = globalFinalStock
+        )
+
+        return ResponseEntity.ok(response)
+    }
 }
